@@ -1,0 +1,80 @@
+{
+  "comparison": {
+    "isEqual": false,
+    "differences": [
+      {
+        "path": "age",
+        "type": "value_mismatch",
+        "original": 25,
+        "new": 26,
+        "message": "数值不匹配: 25 vs 26"
+      },
+      {
+        "path": "details.city",
+        "type": "string_mismatch",
+        "original": "北京",
+        "new": "北京市",
+        "message": "字符串不匹配",
+        "diff": {
+          "similarity": 0.8,
+          "diffBlocks": [
+            {
+              "type": "insert",
+              "original": "",
+              "new": "市",
+              "position": null
+            }
+          ],
+          "totalDiff": 1
+        }
+      },
+      {
+        "path": "details.score",
+        "type": "value_mismatch",
+        "original": 95.5,
+        "new": 95.501,
+        "message": "数值不匹配: 95.5 vs 95.501"
+      },
+      {
+        "path": "scores",
+        "type": "length_mismatch",
+        "original": "长度: 3",
+        "new": "长度: 4",
+        "message": "列表长度不匹配: 3 vs 4"
+      }
+    ],
+    "summary": {
+      "totalItems": 4,
+      "matchingItems": 0,
+      "differentItems": 4
+    }
+  },
+  "report": "============================================================\n数据比对报告\n============================================================\n❌ 数据存在差异\n\n📊 统计信息:\n   总项数: 4\n   一致项: 0\n   差异项: 4\n\n🔍 差异详情 (4 处):\n\n1. 路径: age\n   类型: value_mismatch\n   原始: 25\n   新的: 26\n   信息: 数值不匹配: 25 vs 26\n\n2. 路径: details.city\n   类型: string_mismatch\n   原始: 北京\n   新的: 北京市\n   信息: 字符串不匹配\n   相似度: 80.00%\n   ➕ 插入: '市'\n\n3. 路径: details.score\n   类型: value_mismatch\n   原始: 95.5\n   新的: 95.501\n   信息: 数值不匹配: 95.5 vs 95.501\n\n4. 路径: scores\n   类型: length_mismatch\n   原始: 长度: 3\n   新的: 长度: 4\n   信息: 列表长度不匹配: 3 vs 4\n\n============================================================",
+  "originalData": {
+    "name": "张三",
+    "age": 25,
+    "scores": [
+      85,
+      90,
+      78
+    ],
+    "details": {
+      "city": "北京",
+      "score": 95.5
+    }
+  },
+  "newData": {
+    "name": "张三",
+    "age": 26,
+    "scores": [
+      85,
+      90,
+      78,
+      88
+    ],
+    "details": {
+      "city": "北京市",
+      "score": 95.501
+    }
+  }
+}
