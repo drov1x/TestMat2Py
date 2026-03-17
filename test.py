@@ -23,9 +23,13 @@ def ToNumber(value):
 
 def ToNdArray(value):
     """
-        将输入值转换为NumPy数组并保持原始形状。
+        将输入值转换为NumPy数组，向量转一维，矩阵保留二维。
     """
-    return np.asarray(value)
+    arr = np.asarray(value)
+    # loadmat通常将MATLAB向量读成(1, n)或(n, 1)，这里还原为一维数组。
+    if arr.ndim == 2 and 1 in arr.shape:
+        return arr.reshape(-1)
+    return arr
 
 
 def ToString(value):
@@ -150,55 +154,55 @@ def Test(filePath, funcName=None, dataPool=None):
     """
         自动填充数据并调用，捕获输出
     """
-    try:
-        fileName = os.path.basename(filePath)
-        moduleName = os.path.splitext(fileName)[0]
+#try:
+    fileName = os.path.basename(filePath)
+    moduleName = os.path.splitext(fileName)[0]
+    
+    spec = importlib.util.spec_from_file_location(moduleName, filePath)
+    
+    if spec is None or spec.loader is None:
+        raise ImportError(f"无法加载模块: {filePath}")
+    
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[moduleName] = module
+    spec.loader.exec_module(module)
+    
+    if funcName is None:
+        funcName = moduleName
+    
+    if not hasattr(module, funcName):
+        for commonName in ['main', 'run', 'execute']:
+            if hasattr(module, commonName):
+                funcName = commonName
+                break
+        else:
+            raise AttributeError(f"模块中未找到函数: {funcName}")
+    
+    func = getattr(module, funcName)
+    
+    sig = inspect.signature(func)
+    params = sig.parameters
+    
+    kwargs = {}
+    
+    for paramName, param in params.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
         
-        spec = importlib.util.spec_from_file_location(moduleName, filePath)
-        
-        if spec is None or spec.loader is None:
-            raise ImportError(f"无法加载模块: {filePath}")
-        
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[moduleName] = module
-        spec.loader.exec_module(module)
-        
-        if funcName is None:
-            funcName = moduleName
-        
-        if not hasattr(module, funcName):
-            for commonName in ['main', 'run', 'execute']:
-                if hasattr(module, commonName):
-                    funcName = commonName
-                    break
-            else:
-                raise AttributeError(f"模块中未找到函数: {funcName}")
-        
-        func = getattr(module, funcName)
-        
-        sig = inspect.signature(func)
-        params = sig.parameters
-        
-        kwargs = {}
-        
-        for paramName, param in params.items():
-            if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
-                continue
-            
-            if dataPool is not None and paramName in dataPool:
-                kwargs[paramName] = dataPool[paramName]
-            elif param.default != inspect.Parameter.empty:
-                kwargs[paramName] = param.default
-            elif param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY):
-                kwargs[paramName] = None
-            elif param.kind == param.POSITIONAL_ONLY:
-                raise TypeError(f"缺少必需的位置参数: {paramName}")
-        
-        return func(**kwargs)
-        
-    except Exception as e:
-        print(f"调用文件出错: {e}")
-        return None
+        if dataPool is not None and paramName in dataPool:
+            kwargs[paramName] = dataPool[paramName]
+        elif param.default != inspect.Parameter.empty:
+            kwargs[paramName] = param.default
+        elif param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY):
+            kwargs[paramName] = None
+        elif param.kind == param.POSITIONAL_ONLY:
+            raise TypeError(f"缺少必需的位置参数: {paramName}")
+    
+    return func(**kwargs)
+    
+#except Exception as e:
+#    print(f"调用文件出错: {e}")
+#    return None
 
 
 # 获取路径
@@ -229,9 +233,10 @@ else:
     InputFilePath = "input.mat"
     OutputFilePath = "output.mat"
 """
-FilePath = "SampleFunction.py"
-InputFilePath = "input.mat"
-OutputFilePath = "output.mat"
+FilePath = "D:/GitHubR/PyNTVTOK/PyT/sources/lib/x_nonuniform.py"
+#FilePath = "D:/Py-NTV/PyNTVTOK/PyT/sources/lib/x_nonuniform.py"
+InputFilePath = "D:/Py-NTV/Py-NTV/MPU_ref_run/inputs.mat"
+OutputFilePath = "D:/Py-NTV/Py-NTV/MPU_ref_run/outputs.mat"
 """
 
 # 加载输入输出
@@ -252,16 +257,17 @@ ModuleName = os.path.splitext(fileName)[0]
 NewOutput = []
 
 # 测试
-OutPuts = Test(FilePath, ModuleName, Inputs)
+OutPut = Test(FilePath, ModuleName, Inputs)
 
 # 处理多变量
-if isinstance(OutPuts, tuple):
-    NewOutput = list(OutPuts)
+if isinstance(OutPut, tuple):
+    NewOutput = list(OutPut)
 else:
-    NewOutput.append(OutPuts)
+    NewOutput.append(OutPut)
 
-# print(NewOutput)
-# print(Outputs)
+print(NewOutput)
+#print(Inputs)
+print(Outputs)
 
 # 调用Diff.py比对
-TestDiff(ModuleName, Outputs, NewOutput, tolerance=0.01)
+TestDiff(ModuleName, Outputs, NewOutput, tolerance=0.001)
