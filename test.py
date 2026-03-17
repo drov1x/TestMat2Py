@@ -216,7 +216,7 @@ else:
     InputFilePath = "input.mat"
     OutputFilePath = "output.mat"
     tolerance = 0.01
-    
+
 for s in FilePath:
     if s == '\\':
         s = '/'
@@ -227,35 +227,40 @@ for s in OutputFilePath:
     if s == '\\':
         s = '/'
 
-# 加载输入输出
-InputFile = loadmat(InputFilePath)
-OutputFile = loadmat(OutputFilePath)
+while 1:
+    # 加载输入输出
+    InputFile = loadmat(InputFilePath)
+    OutputFile = loadmat(OutputFilePath)
 
-# 处理输入输出
-Inputs = DataLoader(InputFile)
-Outputs = DataLoader(OutputFile)  
-disOutputs = []  
-for key in Outputs:
-    disOutputs.append(Outputs[key])
-Outputs = disOutputs
+    # 处理输入输出
+    Inputs = DataLoader(InputFile)
+    Outputs = DataLoader(OutputFile)  
+    disOutputs = []  
+    for key in Outputs:
+        disOutputs.append(Outputs[key])
+    Outputs = disOutputs
 
-# 获取待测试代码路径
-fileName = os.path.basename(FilePath)
-ModuleName = os.path.splitext(fileName)[0]
-NewOutput = []
+    # 获取待测试代码路径
+    fileName = os.path.basename(FilePath)
+    ModuleName = os.path.splitext(fileName)[0]
+    NewOutput = []
 
-# 测试
-OutPut = Test(FilePath, ModuleName, Inputs)
+    # 测试
+    OutPut = Test(FilePath, ModuleName, Inputs)
 
-# 处理多变量
-if isinstance(OutPut, tuple):
-    NewOutput = list(OutPut)
-else:
-    NewOutput.append(OutPut)
+    # 处理多变量
+    if isinstance(OutPut, tuple):
+        NewOutput = list(OutPut)
+    else:
+        NewOutput.append(OutPut)
 
-print(NewOutput)
-#print(Inputs)
-print(Outputs)
+    print(NewOutput)
+    #print(Inputs)
+    print(Outputs)
 
-# 调用Diff.py比对
-TestDiff(ModuleName, Outputs, NewOutput, tolerance)
+    # 调用Diff.py比对
+    TestDiff(ModuleName, Outputs, NewOutput, tolerance)
+    b = str(input("比对完成，需要重新比对吗？(y/n)"))
+    if b.lower() != 'n':
+        break
+print("测试结束！")
