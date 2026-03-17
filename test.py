@@ -8,19 +8,30 @@ import os
 
 
 def IsNumericScalar(value):
+    """
+        判断值是否为NumPy数值标量类型。
+    """
     return isinstance(value, np.generic) and np.issubdtype(type(value), np.number)
 
 
 def ToNumber(value):
+    """
+        将NumPy标量转换为Python原生数值。
+    """
     return value.item()
 
 
 def ToNdArray(value):
-    # loadmat返回的矩阵维度顺序与MATLAB一致，这里保持形状不做转置。
+    """
+        将输入值转换为NumPy数组并保持原始形状。
+    """
     return np.asarray(value)
 
 
 def ToString(value):
+    """
+        将字符串相关输入统一转换为Python字符串。
+    """
     if isinstance(value, str):
         return value
     if isinstance(value, bytes):
@@ -46,14 +57,23 @@ def ToString(value):
 
 
 def IsBoolScalar(value):
+    """
+        判断值是否为布尔标量。
+    """
     return isinstance(value, (bool, np.bool_))
 
 
 def ToBool(value):
+    """
+        将布尔相关输入转换为Python布尔值。
+    """
     return bool(value)
 
 
 def ToDict(value):
+    """
+        将MATLAB结构体转换为Python字典结构。
+    """
     if isinstance(value, np.ndarray) and value.dtype.names is not None:
         if value.size == 1:
             return {
@@ -70,6 +90,9 @@ def ToDict(value):
 
 
 def ToCellArray(value):
+    """
+        将MATLAB元胞数组逐元素递归转换为对象数组。
+    """
     converted = np.empty(value.shape, dtype=object)
     for idx, item in np.ndenumerate(value):
         converted[idx] = ConvertValue(item)
@@ -77,6 +100,9 @@ def ToCellArray(value):
 
 
 def ConvertValue(value):
+    """
+        识别数据类型，选择转换方式，并整合成字典返回
+    """
     if IsBoolScalar(value):
         return ToBool(value)
 
@@ -111,6 +137,9 @@ def ConvertValue(value):
     return value
 
 def DataLoader(DataFile):
+    """
+        预处理数据，去除元数据
+    """
     Data = {}
     for key in DataFile.keys():
         if (key != '__header__' and key != '__version__' and key != '__globals__'):
@@ -118,6 +147,9 @@ def DataLoader(DataFile):
     return Data
 
 def Test(filePath, funcName=None, dataPool=None):
+    """
+        自动填充数据并调用，捕获输出
+    """
     try:
         fileName = os.path.basename(filePath)
         moduleName = os.path.splitext(fileName)[0]
@@ -169,17 +201,29 @@ def Test(filePath, funcName=None, dataPool=None):
         return None
 
 
-
+# 获取路径
 if __name__ == "__main__":
     FilePath = str(input("请输入要测试的Python文件路径 (默认-1) : "))
     InputFilePath = str(input("请输入输入数据文件路径 (默认-1) : "))
     OutputFilePath = str(input("请输入输出数据文件路径 (默认-1) : "))
     if (FilePath == "-1"):
         FilePath = "SampleFunction.py"
+    else:
+        for s in FilePath:
+            if s == '\\':
+                s = '/'
     if (InputFilePath == "-1"):
         InputFilePath = "input.mat"
+    else:
+        for s in InputFilePath:
+            if s == '\\':
+                s = '/'
     if (OutputFilePath == "-1"):
         OutputFilePath = "output.mat"
+    else:  
+        for s in OutputFilePath:
+            if s == '\\':
+                s = '/'
 else:
     FilePath = "SampleFunction.py"
     InputFilePath = "input.mat"
@@ -190,20 +234,34 @@ InputFilePath = "input.mat"
 OutputFilePath = "output.mat"
 """
 
+# 加载输入输出
 InputFile = loadmat(InputFilePath)
 OutputFile = loadmat(OutputFilePath)
+
+# 处理输入输出
 Inputs = DataLoader(InputFile)
 Outputs = DataLoader(OutputFile)  
 disOutputs = []  
 for key in Outputs:
     disOutputs.append(Outputs[key])
 Outputs = disOutputs
+
+# 获取待测试代码路径
 fileName = os.path.basename(FilePath)
 ModuleName = os.path.splitext(fileName)[0]
 NewOutput = []
-NewOutput.append(Test(FilePath, ModuleName, Inputs))
 
-print(NewOutput)
-print(Outputs)
+# 测试
+OutPuts = Test(FilePath, ModuleName, Inputs)
 
+# 处理多变量
+if isinstance(OutPuts, tuple):
+    NewOutput = list(OutPuts)
+else:
+    NewOutput.append(OutPuts)
+
+# print(NewOutput)
+# print(Outputs)
+
+# 调用Diff.py比对
 TestDiff(ModuleName, Outputs, NewOutput, tolerance=0.01)
