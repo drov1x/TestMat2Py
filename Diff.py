@@ -255,12 +255,12 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 # ---------------------------------------------------------
 
-def saveComparisonResult(originalData: Any, newData: Any, outputPath: str):
+def saveComparisonResult(originalData: Any, newData: Any, outputPath: str, tolerance: float = 0.0):
     """
     保存比对结果到文件
     """
-    comparisonResult = compareData(originalData, newData)
-    report = getComparisonReport(originalData, newData)
+    comparisonResult = compareData(originalData, newData, tolerance)
+    report = getComparisonReport(originalData, newData, tolerance)
     
     result = {
         'comparison': comparisonResult,
@@ -289,12 +289,9 @@ def TestDiff(outputName = 'comparison_result.json', originalOutput = [1], newOut
     report = getComparisonReport(originalOutput, newOutput, tolerance)
     print(report)
 
-    # 处理文件名：如果已有.json后缀则直接使用，否则添加
-    if not outputName.endswith('.json'):
-        outputpath = outputName + ".json"
-    else:
-        outputpath = outputName
-    saveComparisonResult(originalOutput, newOutput, outputpath)
+    # 处理文件名
+    outputpath = outputName + "_comparison.json"
+    saveComparisonResult(originalOutput, newOutput, outputpath, tolerance)
 
 # 使用示例（略，保持原样）...
 if __name__ == "__main__":

@@ -207,37 +207,25 @@ def Test(filePath, funcName=None, dataPool=None):
 
 # 获取路径
 if __name__ == "__main__":
-    FilePath = str(input("请输入要测试的Python文件路径 (默认-1) : "))
-    InputFilePath = str(input("请输入输入数据文件路径 (默认-1) : "))
-    OutputFilePath = str(input("请输入输出数据文件路径 (默认-1) : "))
-    if (FilePath == "-1"):
-        FilePath = "SampleFunction.py"
-    else:
-        for s in FilePath:
-            if s == '\\':
-                s = '/'
-    if (InputFilePath == "-1"):
-        InputFilePath = "input.mat"
-    else:
-        for s in InputFilePath:
-            if s == '\\':
-                s = '/'
-    if (OutputFilePath == "-1"):
-        OutputFilePath = "output.mat"
-    else:  
-        for s in OutputFilePath:
-            if s == '\\':
-                s = '/'
-else:
+    FilePath = str(input("请输入要测试的Python文件路径 (默认0) : ") or "SampleFunction.py")
+    InputFilePath = str(input("请输入输入数据文件路径 (默认0) : ") or "input.mat")
+    OutputFilePath = str(input("请输入输出数据文件路径 (默认0) : ") or "output.mat")
+    tolerance = float(input("请输入数值比较的容差 (默认0.01) : ") or "0.01")
+else:   
     FilePath = "SampleFunction.py"
     InputFilePath = "input.mat"
     OutputFilePath = "output.mat"
-"""
-FilePath = "D:/GitHubR/PyNTVTOK/PyT/sources/lib/x_nonuniform.py"
-#FilePath = "D:/Py-NTV/PyNTVTOK/PyT/sources/lib/x_nonuniform.py"
-InputFilePath = "D:/Py-NTV/Py-NTV/MPU_ref_run/inputs.mat"
-OutputFilePath = "D:/Py-NTV/Py-NTV/MPU_ref_run/outputs.mat"
-"""
+    tolerance = 0.01
+    
+for s in FilePath:
+    if s == '\\':
+        s = '/'
+for s in InputFilePath:
+    if s == '\\':
+        s = '/'
+for s in OutputFilePath:
+    if s == '\\':
+        s = '/'
 
 # 加载输入输出
 InputFile = loadmat(InputFilePath)
@@ -270,4 +258,4 @@ print(NewOutput)
 print(Outputs)
 
 # 调用Diff.py比对
-TestDiff(ModuleName, Outputs, NewOutput, tolerance=0.001)
+TestDiff(ModuleName, Outputs, NewOutput, tolerance)
