@@ -261,6 +261,6 @@ while 1:
     # 调用Diff.py比对
     TestDiff(ModuleName, Outputs, NewOutput, tolerance)
     b = str(input("比对完成，需要重新比对吗？(y/n)"))
-    if b.lower() != 'n':
+    if b.lower() != 'y':
         break
 print("测试结束！")
