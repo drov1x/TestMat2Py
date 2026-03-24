@@ -1,10 +1,13 @@
 from scipy.io import loadmat
 from Diff import TestDiff
 import importlib.util
+import traceback
 import inspect
 import numpy as np
 import sys
 import os
+
+from twisted.python.filepath import FilePath
 
 
 def IsNumericScalar(value):
@@ -21,13 +24,13 @@ def ToNumber(value):
     return value.item()
 
 
-def ToNdArray(value):
+def ToNdArray(value, id):
     """
         将输入值转换为NumPy数组，向量转一维，矩阵保留二维。
     """
     arr = np.asarray(value)
     # loadmat通常将MATLAB向量读成(1, n)或(n, 1)，这里还原为一维数组。
-    if arr.ndim == 2 and 1 in arr.shape:
+    if id and arr.ndim == 2 and 1 in arr.shape:
         return arr.reshape(-1)
     return arr
 
@@ -103,7 +106,7 @@ def ToCellArray(value):
     return converted
 
 
-def ConvertValue(value):
+def ConvertValue(value, id):
     """
         识别数据类型，选择转换方式，并整合成字典返回
     """
@@ -130,7 +133,7 @@ def ConvertValue(value):
                 if isinstance(scalar, np.generic):
                     return ToNumber(scalar)
                 return scalar
-            return ToNdArray(value)
+            return ToNdArray(value, id)
 
     if isinstance(value, (str, bytes, np.str_, np.bytes_)):
         return ToString(value)
@@ -140,36 +143,38 @@ def ConvertValue(value):
 
     return value
 
-def DataLoader(DataFile):
+
+def DataLoader(DataFile, id):
     """
         预处理数据，去除元数据
     """
     Data = {}
     for key in DataFile.keys():
         if (key != '__header__' and key != '__version__' and key != '__globals__'):
-            Data[key] = ConvertValue(DataFile[key])
+            Data[key] = ConvertValue(DataFile[key], id)
     return Data
+
 
 def Test(filePath, funcName=None, dataPool=None):
     """
         自动填充数据并调用，捕获输出
     """
-#try:
+    # try:
     fileName = os.path.basename(filePath)
     moduleName = os.path.splitext(fileName)[0]
-    
+
     spec = importlib.util.spec_from_file_location(moduleName, filePath)
-    
+
     if spec is None or spec.loader is None:
         raise ImportError(f"无法加载模块: {filePath}")
-    
+
     module = importlib.util.module_from_spec(spec)
     sys.modules[moduleName] = module
     spec.loader.exec_module(module)
-    
+
     if funcName is None:
         funcName = moduleName
-    
+
     if not hasattr(module, funcName):
         for commonName in ['main', 'run', 'execute']:
             if hasattr(module, commonName):
@@ -177,18 +182,18 @@ def Test(filePath, funcName=None, dataPool=None):
                 break
         else:
             raise AttributeError(f"模块中未找到函数: {funcName}")
-    
+
     func = getattr(module, funcName)
-    
+
     sig = inspect.signature(func)
     params = sig.parameters
-    
+
     kwargs = {}
-    
+
     for paramName, param in params.items():
         if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             continue
-        
+
         if dataPool is not None and paramName in dataPool:
             kwargs[paramName] = dataPool[paramName]
         elif param.default != inspect.Parameter.empty:
@@ -197,10 +202,11 @@ def Test(filePath, funcName=None, dataPool=None):
             kwargs[paramName] = None
         elif param.kind == param.POSITIONAL_ONLY:
             raise TypeError(f"缺少必需的位置参数: {paramName}")
-    
+
     return func(**kwargs)
-    
-#except Exception as e:
+
+
+# except Exception as e:
 #    print(f"调用文件出错: {e}")
 #    return None
 
@@ -211,11 +217,13 @@ if __name__ == "__main__":
     InputFilePath = str(input("请输入输入数据文件路径 (默认0) : ") or "input.mat")
     OutputFilePath = str(input("请输入输出数据文件路径 (默认0) : ") or "output.mat")
     tolerance = float(input("请输入数值比较的容差 (默认0.01) : ") or "0.01")
-else:   
+    id = bool(input("数组是否转化成一维？") or True)
+else:
     FilePath = "SampleFunction.py"
     InputFilePath = "input.mat"
     OutputFilePath = "output.mat"
     tolerance = 0.01
+    id = True
 
 for s in FilePath:
     if s == '\\':
@@ -232,10 +240,27 @@ while 1:
     InputFile = loadmat(InputFilePath)
     OutputFile = loadmat(OutputFilePath)
 
+    k = {}
+    i = 0
+    # print(type(names[i]))
+    for key, value in InputFile.items():
+        if (key != "__header__" and key != "__version__" and key != "__globals__"):
+            k[names[i]] = value
+            # print(key)
+            i += 1
+    InputFile = k
+
+    k = {}
+    for key, value in OutputFile.items():
+        if (key != "__header__" and key != "__version__" and key != "__globals__"):
+            k[names[i]] = value
+            i += 1
+    OutputFile = k
+
     # 处理输入输出
-    Inputs = DataLoader(InputFile)
-    Outputs = DataLoader(OutputFile)  
-    disOutputs = []  
+    Inputs = DataLoader(InputFile, id)
+    Outputs = DataLoader(OutputFile, id)
+    disOutputs = []
     for key in Outputs:
         disOutputs.append(Outputs[key])
     Outputs = disOutputs
@@ -246,21 +271,43 @@ while 1:
     NewOutput = []
 
     # 测试
-    OutPut = Test(FilePath, ModuleName, Inputs)
+    try:
+        OutPut = Test(FilePath, ModuleName, Inputs)
 
-    # 处理多变量
-    if isinstance(OutPut, tuple):
-        NewOutput = list(OutPut)
-    else:
-        NewOutput.append(OutPut)
+        # 处理多变量
+        if isinstance(OutPut, tuple):
+            NewOutput = list(OutPut)
+        else:
+            NewOutput.append(OutPut)
 
-    print(NewOutput)
-    #print(Inputs)
-    print(Outputs)
+        print(NewOutput)
+        # print(Inputs)
+        print(Outputs)
 
-    # 调用Diff.py比对
-    TestDiff(ModuleName, Outputs, NewOutput, tolerance)
-    b = str(input("比对完成，需要重新比对吗？(y/n)"))
-    if b.lower() != 'y':
+        # 调用Diff.py比对
+        TestDiff(ModuleName, Outputs, NewOutput, tolerance)
+        b = str(input("比对完成，需要重新比对吗？(y/n)"))
+    except Exception as e:
+        b = str(input(
+            f"调用文件出错: {sys.exc_info()[0]}\n完整如下：{traceback.format_exc()}\n输入 y 重试\n输入 n 退出\n输入 i 获得输入\n输入 o 获得输出\n输入 s 获得原始输出\n"))
+    b = b.lower()
+    if b == 'n':
         break
+    elif b == 'y':
+        continue
+    elif b == 's' or b == 'i' or b == 'o':
+        while (1):
+            if b == 's':
+                print(Outputs)
+            elif b == 'i':
+                print(Inputs)
+            elif b == 'o':
+                print(NewOutputs)
+            b = str(input("继续吗？(y/n/i/o/n)")).lower()
+            if (b == 'y' or b == 'n'):
+                break
+        if (b == 'n'):
+            break
+    else:
+        print("重试")
 print("测试结束！")
