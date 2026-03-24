@@ -219,20 +219,20 @@ if (1):#根据实际情况修改
         OutputFilePath = str(input("请输入输出数据文件路径 (默认0) : ") or "output.mat")
         tolerance = float(input("请输入数值比较的容差 (默认0.01) : ") or "0.01")
         id = bool(input("数组是否转化成一维？") or True)
-        names = list(str(input("请输入输入输出变量名称列表，逗号分隔  : ") or "a,b,c").split(","))
+        names = list(str(input("请输入输入输出变量名称列表，逗号分隔  : ") or "a,b,c,d").split(","))
     else:
         FilePath = "SampleFunction.py"
         InputFilePath = "input.mat"
         OutputFilePath = "output.mat"
         tolerance = 0.01
         id = True
-        names = ["a", "b", "c"]
+        names = ["a", "b", "c", "d"]
 else:#如果不希望频繁改变路径
     FilePath = "SampleFunction.py"
     InputFilePath = "input.mat"
     OutputFilePath = "output.mat"
     tolerance = 0.01
-    names = ["a", "b", "c"]
+    names = ["a", "b", "c", "d"]
     id = True
 
 for s in FilePath:
@@ -250,22 +250,26 @@ while 1:
     InputFile = loadmat(InputFilePath)
     OutputFile = loadmat(OutputFilePath)
 
-    k = {}
-    i = 0
-    # print(type(names[i]))
-    for key, value in InputFile.items():
-        if (key != "__header__" and key != "__version__" and key != "__globals__"):
-            k[names[i]] = value
-            # print(key)
-            i += 1
-    InputFile = k
+    try:
+        k = {}
+        i = 0
+        for key, value in InputFile.items():
+            if not(key in ["__header__", "__version__", "__globals__"]):
+                k[names[i]] = value
+                i += 1
+        InputFile = k
 
-    k = {}
-    for key, value in OutputFile.items():
-        if (key != "__header__" and key != "__version__" and key != "__globals__"):
-            k[names[i]] = value
-            i += 1
-    OutputFile = k
+        k = {}
+        for key, value in OutputFile.items():
+            if not(key in ["__header__", "__version__", "__globals__"]):
+                k[names[i]] = value
+                i += 1
+        OutputFile = k
+    except:
+        print(inputFile)
+        print("--------------------------------------")
+        print(OutputFile)
+        break
 
     # 处理输入输出
     Inputs = DataLoader(InputFile, id)
