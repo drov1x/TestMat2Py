@@ -212,17 +212,27 @@ def Test(filePath, funcName=None, dataPool=None):
 
 
 # 获取路径
-if __name__ == "__main__":
-    FilePath = str(input("请输入要测试的Python文件路径 (默认0) : ") or "SampleFunction.py")
-    InputFilePath = str(input("请输入输入数据文件路径 (默认0) : ") or "input.mat")
-    OutputFilePath = str(input("请输入输出数据文件路径 (默认0) : ") or "output.mat")
-    tolerance = float(input("请输入数值比较的容差 (默认0.01) : ") or "0.01")
-    id = bool(input("数组是否转化成一维？") or True)
-else:
+if (1):#根据实际情况修改
+    if __name__ == "__main__":
+        FilePath = str(input("请输入要测试的Python文件路径 (默认0) : ") or "SampleFunction.py")
+        InputFilePath = str(input("请输入输入数据文件路径 (默认0) : ") or "input.mat")
+        OutputFilePath = str(input("请输入输出数据文件路径 (默认0) : ") or "output.mat")
+        tolerance = float(input("请输入数值比较的容差 (默认0.01) : ") or "0.01")
+        id = bool(input("数组是否转化成一维？") or True)
+        names = list(str(input("请输入输入输出变量名称列表，逗号分隔  : ") or "a,b,c").split(","))
+    else:
+        FilePath = "SampleFunction.py"
+        InputFilePath = "input.mat"
+        OutputFilePath = "output.mat"
+        tolerance = 0.01
+        id = True
+        names = ["a", "b", "c"]
+else:#如果不希望频繁改变路径
     FilePath = "SampleFunction.py"
     InputFilePath = "input.mat"
     OutputFilePath = "output.mat"
     tolerance = 0.01
+    names = ["a", "b", "c"]
     id = True
 
 for s in FilePath:
