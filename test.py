@@ -1,3 +1,58 @@
+"""
+TestMat2Py/main.py
+测试脚本 TestMat2Py 的主程序
+
+函数组成：
+    IsNumericScalar & To* :     将scipy.io.loadmat获取到的原始数据的数值类型逐一转换成所需的数值类型
+                                其中：
+                                    数值统一转换成int or float
+                                    int和float类型的数组 统一转换成np.ndarray
+                                    str类型的数组统一转换成字符串
+                                    结构体统一转换成字典，保留键名
+    ConvertValue :              供 ToDict 递归用
+    DataLoader :                数据处理的主要函数，功能如下：
+                                    1. 去除 scipy.io.loadmat 元数据中的 "__header__"、"__version__"、"__globals__" 字段
+                                    2. 对每个数据自动判断类型，调用对应的函数
+                                    3. 整合成字典返回
+    Test :                      自动填入测试参数，调用待测试程序，捕获输出
+
+外部调用：
+    scipy.io.loadmat :          读取MATLAB .mat文件，获取输入输出数据
+    Diff :                      位于 TestMat2Py/Diff.py ，对比数据用
+
+主程序流程 (line 325) ：
+
+    1. 获取测试参数
+        第一个 if 如果是 1 则表示希望从 CLI 输入数据，如果为 0 则代表用户自己在 py 文件内填入数据
+
+        参数详细：
+            FilePath : 待测试代码文件路径 (py)
+            InputFilePath : 输入数据路径 (mat)
+            OutputFilePath : 输出数据路径 (mat)
+                注：以上路径支持绝对路径和相对路径，支持反斜杠
+            tolerance : 数据对比时支持的容差
+            names : 参数具体名字，包括输入和输出
+            id :
+                当 id[0] = True 时表示待用户手动确定每个矩阵是否降维， False 则使用默认值
+                后面按顺序决定每个矩阵是否降维
+
+    2. 读取原始数据并对参数重命名，如果报错会输出 scipy.io.loadmat 获得的原始数据
+    3. 对数据进行转化
+    4. 调用待测试程序
+        如果目标程序报错，会输出完整的错误信息
+    5. 调用 Diff.py 对比，输出对比报告 （如果上述步骤出现错误导致程序没有输出则不对比）
+    6. 测试结束，提供选项：
+        y : 重新测试
+        n : 退出程序
+        i : 输出输入数据
+        o : 输出程序输出数据
+        s : 输出原始输出数据
+        b : 重置降维选项，重新测试
+
+参数获取：
+    在 CLI 获取参数的时候，直接敲回车会返回默认值
+"""
+
 from scipy.io import loadmat
 from Diff import TestDiff
 import importlib.util
@@ -24,7 +79,7 @@ def ToNumber(value):
     return value.item()
 
 
-def ToNdArray(value, id):
+def ToNdArray(value, id = True):
     """
         将输入值转换为NumPy数组，向量转一维，矩阵保留二维。
     """
@@ -106,7 +161,7 @@ def ToCellArray(value):
     return converted
 
 
-def ConvertValue(value, id):
+def ConvertValue(value):
     """
         识别数据类型，选择转换方式，并整合成字典返回
     """
@@ -133,7 +188,7 @@ def ConvertValue(value, id):
                 if isinstance(scalar, np.generic):
                     return ToNumber(scalar)
                 return scalar
-            return ToNdArray(value, id)
+            return ToNdArray(value)
 
     if isinstance(value, (str, bytes, np.str_, np.bytes_)):
         return ToString(value)
@@ -144,14 +199,73 @@ def ConvertValue(value, id):
     return value
 
 
-def DataLoader(DataFile, id):
+def DataLoader(DataFile, names = [], id = [False]):
     """
         预处理数据，去除元数据
     """
     Data = {}
+    i = 0
+    j = -1
     for key in DataFile.keys():
         if (key != '__header__' and key != '__version__' and key != '__globals__'):
-            Data[key] = ConvertValue(DataFile[key], id)
+            j += 1
+            if IsBoolScalar(DataFile[key]):
+                Data[key] = ToBool(DataFile[key])
+                continue
+
+            if IsNumericScalar(DataFile[key]):
+                Data[key] = ToNumber(DataFile[key])
+                continue
+
+            if isinstance(DataFile[key], np.ndarray):
+                if DataFile[key].dtype == np.bool_ and DataFile[key].size == 1:
+                    Data[key] = ToBool(DataFile[key].item())
+                    continue
+                if DataFile[key].dtype.names is not None:
+                    Data[key] = ToDict(DataFile[key])
+                    continue
+                if DataFile[key].dtype == object:
+                    Data[key] = ToCellArray(DataFile[key])
+                    continue
+                if DataFile[key].dtype.kind in {"U", "S"}:
+                    Data[key] = ToString(DataFile[key])
+                    continue
+                if np.issubdtype(DataFile[key].dtype, np.number) or DataFile[key].dtype == np.bool_:
+                    if DataFile[key].size == 1:
+                        scalar = DataFile[key].item()
+                        if isinstance(scalar, (bool, np.bool_)):
+                            Data[key] = ToBool(scalar)
+                            continue
+                        if isinstance(scalar, np.generic):
+                            Data[key] = ToNumber(scalar)
+                            continue
+                        Data[key] = scalar
+                        continue
+
+                    i += 1
+                    if id[0]:
+                        if len(id) > i:
+                            id[i] = (bool(str(input(f"对于数组{names[j]}, 是否需要降维？(y/n)：") or ('y' if id[i] else 'n')).lower() == 'y'))
+                        else:
+                            id.append(bool(str(input(f"对于数组{names[j]}, 是否需要降维？(y/n)：")).lower() == 'y'))
+                        Data[key] = ToNdArray(DataFile[key], id[i])
+                    else:
+                        try:
+                            Data[key] = ToNdArray(DataFile[key], id[i])
+                        except:
+                            Data[key] = ToNdArray(DataFile[key])
+                    continue
+
+            if isinstance(DataFile[key], (str, bytes, np.str_, np.bytes_)):
+                Data[key] = ToString(DataFile[key])
+                continue
+
+            if hasattr(DataFile[key], "_fieldnames"):
+                Data[key] = ToDict(DataFile[key])
+                continue
+
+            Data[key] = DataFile[key]
+    id[0] = False
     return Data
 
 
@@ -212,20 +326,20 @@ def Test(filePath, funcName=None, dataPool=None):
 
 
 # 获取路径
-if (1):#根据实际情况修改
+if (0):#根据实际情况修改
+    id = [False]
     if __name__ == "__main__":
         FilePath = str(input("请输入要测试的Python文件路径 (默认0) : ") or "SampleFunction.py")
         InputFilePath = str(input("请输入输入数据文件路径 (默认0) : ") or "input.mat")
         OutputFilePath = str(input("请输入输出数据文件路径 (默认0) : ") or "output.mat")
         tolerance = float(input("请输入数值比较的容差 (默认0.01) : ") or "0.01")
-        id = bool(input("数组是否转化成一维？") or True)
-        names = list(str(input("请输入输入输出变量名称列表，逗号分隔  : ") or "a,b,c,d").split(","))
+        names = list(str(input("请输入输入输出变量名称列表，逗号分隔: ") or "a,b,c,d").split(","))
+        id.append(bool(str(input("需要为每个输入参数指定是否降维吗？(y/n)：")).lower() == 'y'))
     else:
         FilePath = "SampleFunction.py"
         InputFilePath = "input.mat"
         OutputFilePath = "output.mat"
         tolerance = 0.01
-        id = True
         names = ["a", "b", "c", "d"]
 else:#如果不希望频繁改变路径
     FilePath = "SampleFunction.py"
@@ -233,7 +347,7 @@ else:#如果不希望频繁改变路径
     OutputFilePath = "output.mat"
     tolerance = 0.01
     names = ["a", "b", "c", "d"]
-    id = True
+    id = [False]
 
 for s in FilePath:
     if s == '\\':
@@ -266,14 +380,13 @@ while 1:
                 i += 1
         OutputFile = k
     except:
-        print(inputFile)
-        print("--------------------------------------")
+        print(InputFile)
+        print("---------------------------------")
         print(OutputFile)
         break
-
     # 处理输入输出
-    Inputs = DataLoader(InputFile, id)
-    Outputs = DataLoader(OutputFile, id)
+    Inputs = DataLoader(InputFile, names, id)
+    Outputs = DataLoader(OutputFile)
     disOutputs = []
     for key in Outputs:
         disOutputs.append(Outputs[key])
@@ -300,10 +413,10 @@ while 1:
 
         # 调用Diff.py比对
         TestDiff(ModuleName, Outputs, NewOutput, tolerance)
-        b = str(input("比对完成，需要重新比对吗？(y/n)"))
+        b = str(input("测试完成，需要重试吗？(y/n)"))
     except Exception as e:
         b = str(input(
-            f"调用文件出错: {sys.exc_info()[0]}\n完整如下：{traceback.format_exc()}\n输入 y 重试\n输入 n 退出\n输入 i 获得输入\n输入 o 获得输出\n输入 s 获得原始输出\n"))
+            f"调用文件出错: {sys.exc_info()[0]}\n完整如下：{traceback.format_exc()}\n输入 y 重试\n输入 n 退出\n输入 i 获得输入\n输入 o 获得输出\n输入 s 获得原始输出\n输入 b 重置降维选项\n"))
     b = b.lower()
     if b == 'n':
         break
@@ -322,6 +435,9 @@ while 1:
                 break
         if (b == 'n'):
             break
+    elif b == 'b':
+        id[0] = True
+        continue
     else:
         print("重试")
 print("测试结束！")
