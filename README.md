@@ -37,6 +37,9 @@
     FilePath = "SampleFunction.py"
     InputFilePath = "input.mat"
     OutputFilePath = "output.mat"
+    tolerance = 0.01
+    names = ["a", "b", "c", "d"]
+    id = [False]
 ```
 
 ---
