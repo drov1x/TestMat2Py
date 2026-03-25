@@ -413,10 +413,12 @@ while 1:
 
         # 调用Diff.py比对
         TestDiff(ModuleName, Outputs, NewOutput, tolerance)
-        b = str(input("测试完成，需要重试吗？(y/n)"))
-    except Exception as e:
         b = str(input(
-            f"调用文件出错: {sys.exc_info()[0]}\n完整如下：{traceback.format_exc()}\n输入 y 重试\n输入 n 退出\n输入 i 获得输入\n输入 o 获得输出\n输入 s 获得原始输出\n输入 b 重置降维选项\n"))
+            "测试完成!\n输入 y 重试\n输入 n 退出\n输入 i 获得输入\n输入 o 获得输出\n输入 s 获得原始输出\n输入 b 重置降维选项\n"))
+    except Exception as e:
+        err = traceback.format_exc()
+        b = str(input(
+            f"调用文件出错: {sys.exc_info()[0]}\n完整如下：{err}\n输入 y 重试\n输入 n 退出\n输入 i 获得输入\n输入 o 获得输出\n输入 s 获得原始输出\n输入 b 重置降维选项\n"))
     b = b.lower()
     if b == 'n':
         break

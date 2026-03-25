@@ -3,7 +3,7 @@ TestMat2Py/Diff.py
 测试脚本 TestMat2Py 的结果对比模块
 
 值得注意的细节：
-    1. 在 line 43 把 int 和 float 统一视作数值类型，如果原始数据因为一个是 int 另一个是 float 不会导致类型不匹配报错
+    1. 在 line 46 把 int 和 float 统一视作数值类型，如果原始数据因为一个是 int 另一个是 float 不会导致类型不匹配报错
     2. 由于 int 和 float 统一视作数值类型，做差对比时也会统一相加减
     3. 数值类型精度为 float64
 """
@@ -12,6 +12,8 @@ import difflib
 import json
 import numpy as np  # 新增导入
 from typing import Any, Dict, List, Tuple, Optional
+import os
+import time
 
 
 def compareData(originalData: Any, newData: Any, tolerance: float = 0.0) -> Dict[str, Any]:
@@ -292,7 +294,6 @@ def saveComparisonResult(originalData: Any, newData: Any, outputPath: str, toler
         else:
             f.write(report)
 
-    print(f"比对结果已保存到: {outputPath}")
     return result
 
 
@@ -307,8 +308,14 @@ def TestDiff(outputName='default', originalOutput=[1], newOutput=[1], tolerance=
     print(report)
 
     # 处理文件名
-    outputpath = outputName + "_comparison.json"
+    savedir = "reports"
+    os.makedirs(savedir, exist_ok=True)
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"{outputName}_comparison_{timestamp}.json"
+    outputpath = os.path.join(savedir, filename)
     saveComparisonResult(originalOutput, newOutput, outputpath, tolerance)
+    print(f"📁 比较结果将保存到: {os.path.abspath(outputpath)}")
 
 
 # 使用示例（略，保持原样）...
