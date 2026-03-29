@@ -38,12 +38,20 @@ def compareData(originalData: Any, newData: Any, tolerance: float = 0.0) -> Dict
         }
     }
 
+    def _is_numeric(value: Any) -> bool:
+        """判断是否为可做容差比较的数值类型（排除 bool）。"""
+        return isinstance(value, (int, float, complex, np.integer, np.floating, np.complexfloating)) and not isinstance(value, (bool, np.bool_))
+
+    def _is_complex_numeric(value: Any) -> bool:
+        """判断是否为复数类型（含 numpy 复数标量）。"""
+        return isinstance(value, (complex, np.complexfloating))
+
     def _compare(value1: Any, value2: Any, path: str = '') -> List[Dict]:
         """递归比较函数"""
         differences = []
 
-        # 类型检查，这里把int和float都视作数值类型，做相同判断
-        if type(value1) != type(value2) and type(value1) not in [int, float] and type(value2) not in [int, float]:
+        # 类型检查：不同类型时，若双方都是数值（int/float/complex）则继续按数值比较
+        if type(value1) != type(value2) and not (_is_numeric(value1) and _is_numeric(value2)):
             differences.append({
                 'path': path,
                 'type': 'type_mismatch',
@@ -122,14 +130,26 @@ def compareData(originalData: Any, newData: Any, tolerance: float = 0.0) -> Dict
                         'message': f"新数据中缺少元素，索引 {i}"
                     })
 
-        elif isinstance(value1, (int, float)):
-            if abs(value1 - value2) > tolerance:
+        elif _is_complex_numeric(value1) or _is_complex_numeric(value2):
+            diffValue = abs(complex(value1) - complex(value2))
+            if diffValue > tolerance:
+                differences.append({
+                    'path': path,
+                    'type': 'complex_mismatch',
+                    'original': value1,
+                    'new': value2,
+                    'message': f"复数不匹配: {value1} vs {value2} : {diffValue} > 容差 {tolerance}"
+                })
+
+        elif _is_numeric(value1):
+            diffValue = abs(float(value1) - float(value2))
+            if diffValue > tolerance:
                 differences.append({
                     'path': path,
                     'type': 'int_float_mismatch',
                     'original': value1,
                     'new': value2,
-                    'message': f"数值不匹配: {value1} vs {value2} : {abs(value1 - value2)} > 容差 {tolerance}"
+                    'message': f"数值不匹配: {value1} vs {value2} : {diffValue} > 容差 {tolerance}"
                 })
 
         elif isinstance(value1, str):
