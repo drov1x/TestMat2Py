@@ -286,6 +286,13 @@ class NumpyEncoder(json.JSONEncoder):
             return int(obj)
         elif isinstance(obj, np.floating):
             return float(obj)
+        elif isinstance(obj, (complex, np.complexfloating)):
+            # Use an explicit object shape so complex values are JSON-safe and reversible.
+            return {
+                '__complex__': True,
+                'real': float(np.real(obj)),
+                'imag': float(np.imag(obj))
+            }
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
         return super().default(obj)
