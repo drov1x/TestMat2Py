@@ -1,351 +1,496 @@
-"""
-TestMat2Py/Diff.py
-测试脚本 TestMat2Py 的结果对比模块
-
-值得注意的细节：
-    1. 在 line 46 把 int 和 float 统一视作数值类型，如果原始数据因为一个是 int 另一个是 float 不会导致类型不匹配报错
-    2. 由于 int 和 float 统一视作数值类型，做差对比时也会统一相加减
-    3. 数值类型精度为 float64
-"""
-
-import difflib
-import json
-import numpy as np  # 新增导入
-from typing import Any, Dict, List, Tuple, Optional
 import os
 import time
+import math
+from collections.abc import Iterable
+import numpy as np
 
+# ---------- 配置常量 ----------
+MAX_DISPLAY_ELEMENTS = 10
+LARGE_ARRAY_THRESHOLD = 100
+INDENT = "  "
 
-def compareData(originalData: Any, newData: Any, tolerance: float = 0.0) -> Dict[str, Any]:
-    """
-    比较两个数据，返回比对结果
+# ---------- 全局统计变量（在每次比较开始时重置） ----------
+_stats = {
+    'num_arrays': 0,
+    'total_array_elements': 0,
+    'num_scalars': 0,
+    'num_dicts': 0,
+    'num_strings': 0,
+    'num_other': 0,
+    'passed_items': [],      # 每个元素为 (path, type_desc, summary)
+    'diff_items': [],        # 每个元素为 (path, diff_detail_string)
+}
 
-    Args:
-        originalData: 原始数据
-        newData: 新数据
-        tolerance: 数值容差（用于浮点数比较）
-
-    Returns:
-        比对结果字典
-    """
-    result = {
-        'isEqual': False,
-        'differences': [],
-        'summary': {
-            'totalItems': 0,
-            'matchingItems': 0,
-            'differentItems': 0
-        }
+def _reset_stats():
+    global _stats
+    _stats = {
+        'num_arrays': 0,
+        'total_array_elements': 0,
+        'num_scalars': 0,
+        'num_dicts': 0,
+        'num_strings': 0,
+        'num_other': 0,
+        'passed_items': [],
+        'diff_items': [],
     }
 
-    def _is_numeric(value: Any) -> bool:
-        """判断是否为可做容差比较的数值类型（排除 bool）。"""
-        return isinstance(value, (int, float, complex, np.integer, np.floating, np.complexfloating)) and not isinstance(value, (bool, np.bool_))
+# ---------- 辅助函数 ----------
 
-    def _is_complex_numeric(value: Any) -> bool:
-        """判断是否为复数类型（含 numpy 复数标量）。"""
-        return isinstance(value, (complex, np.complexfloating))
-
-    def _compare(value1: Any, value2: Any, path: str = '') -> List[Dict]:
-        """递归比较函数"""
-        differences = []
-
-        # 类型检查：不同类型时，若双方都是数值（int/float/complex）则继续按数值比较
-        if type(value1) != type(value2) and not (_is_numeric(value1) and _is_numeric(value2)):
-            differences.append({
-                'path': path,
-                'type': 'type_mismatch',
-                'original': f"type: {type(value1).__name__}",
-                'new': f"type: {type(value2).__name__}",
-                'message': f"类型不匹配: {type(value1).__name__} vs {type(value2).__name__}"
-            })
-            return differences
-
-        # ---------- 新增对 numpy.ndarray 的处理 ----------
-        if isinstance(value1, np.ndarray):
-            # 将 numpy 数组转换为列表后再递归比较，这样可以利用已有的列表比较逻辑
-            return _compare(value1.tolist(), value2.tolist(), path)
-        # ------------------------------------------------
-
-        # 根据类型比较
-        if isinstance(value1, dict):
-            allKeys = set(value1.keys()) | set(value2.keys())
-            for key in allKeys:
-                newPath = f"{path}.{key}" if path else str(key)
-                if key in value1 and key in value2:
-                    differences.extend(_compare(value1[key], value2[key], newPath))
-                elif key in value1:
-                    differences.append({
-                        'path': newPath,
-                        'type': 'missing_key',
-                        'original': value1[key],
-                        'new': 'KEY_MISSING',
-                        'message': f"新数据中缺少键: {key}"
-                    })
-                else:
-                    differences.append({
-                        'path': newPath,
-                        'type': 'extra_key',
-                        'original': 'KEY_MISSING',
-                        'new': value2[key],
-                        'message': f"原始数据中缺少键: {key}"
-                    })
-
-        elif isinstance(value1, list):
-            len1, len2 = len(value1), len(value2)
-            # 记录长度不匹配
-            if len1 != len2:
-                differences.append({
-                    'path': path,
-                    'type': 'length_mismatch',
-                    'original': f"长度: {len1}",
-                    'new': f"长度: {len2}",
-                    'message': f"列表长度不匹配: {len1} vs {len2}"
-                })
-
-            # 比较公共索引部分
-            for i in range(min(len1, len2)):
-                newPath = f"{path}[{i}]"
-                differences.extend(_compare(value1[i], value2[i], newPath))
-
-            # 处理多余/缺失的元素
-            if len1 < len2:
-                for i in range(len1, len2):
-                    newPath = f"{path}[{i}]"
-                    differences.append({
-                        'path': newPath,
-                        'type': 'extra_element',
-                        'original': 'INDEX_MISSING',
-                        'new': value2[i],
-                        'message': f"新数据中有额外元素，索引 {i}"
-                    })
-            elif len1 > len2:
-                for i in range(len2, len1):
-                    newPath = f"{path}[{i}]"
-                    differences.append({
-                        'path': newPath,
-                        'type': 'missing_element',
-                        'original': value1[i],
-                        'new': 'INDEX_MISSING',
-                        'message': f"新数据中缺少元素，索引 {i}"
-                    })
-
-        elif _is_complex_numeric(value1) or _is_complex_numeric(value2):
-            diffValue = abs(complex(value1) - complex(value2))
-            if diffValue > tolerance:
-                differences.append({
-                    'path': path,
-                    'type': 'complex_mismatch',
-                    'original': value1,
-                    'new': value2,
-                    'message': f"复数不匹配: {value1} vs {value2} : {diffValue} > 容差 {tolerance}"
-                })
-
-        elif _is_numeric(value1):
-            diffValue = abs(float(value1) - float(value2))
-            if diffValue > tolerance:
-                differences.append({
-                    'path': path,
-                    'type': 'int_float_mismatch',
-                    'original': value1,
-                    'new': value2,
-                    'message': f"数值不匹配: {value1} vs {value2} : {diffValue} > 容差 {tolerance}"
-                })
-
-        elif isinstance(value1, str):
-            if value1 != value2:
-                differences.append({
-                    'path': path,
-                    'type': 'string_mismatch',
-                    'original': value1,
-                    'new': value2,
-                    'message': f"字符串不匹配"
-                })
-
-                # 可选：添加字符串差异详情
-                if len(value1) > 0 and len(value2) > 0:
-                    diffResult = getStringDifference(value1, value2)
-                    differences[-1]['diff'] = diffResult
-
-        else:  # 其他类型（bool, None等）
-            if value1 != value2:
-                differences.append({
-                    'path': path,
-                    'type': 'bool_none_mismatch',
-                    'original': value1,
-                    'new': value2,
-                    'message': f"值不匹配: {value1} vs {value2}"
-                })
-
-        return differences
-
-    # 执行比较
-    differences = _compare(originalData, newData)
-
-    # 统计结果
-    result['isEqual'] = len(differences) == 0
-    result['differences'] = differences
-
-    # 如果数据是列表或字典，计算总数（此处简化，可按需调整）
-    if isinstance(originalData, (dict, list)):
-        if isinstance(originalData, dict):
-            result['summary']['totalItems'] = len(originalData)
-        elif isinstance(originalData, list):
-            result['summary']['totalItems'] = len(originalData)
-
-        # 这里简单统计差异项数量，实际可更精细
-        result['summary']['matchingItems'] = result['summary']['totalItems'] - len(differences)
-        result['summary']['differentItems'] = len(differences)
-
-    return result
-
-
-def getStringDifference(str1: str, str2: str) -> Dict[str, Any]:
-    """
-    获取两个字符串的差异详情
-    """
-    matcher = difflib.SequenceMatcher(None, str1, str2)
-
-    # 找到差异块
-    diffBlocks = []
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag != 'equal':
-            diffBlocks.append({
-                'type': tag,  # replace, delete, insert
-                'original': str1[i1:i2] if tag in ('replace', 'delete') else '',
-                'new': str2[j1:j2] if tag in ('replace', 'insert') else '',
-                'position': {'start': i1, 'end': i2} if tag in ('replace', 'delete') else None
-            })
-
-    return {
-        'similarity': matcher.ratio(),
-        'diffBlocks': diffBlocks,
-        'totalDiff': abs(len(str1) - len(str2))
-    }
-
-
-def getComparisonReport(originalData: Any, newData: Any, tolerance: float = 0.0) -> str:
-    """
-    生成详细的比对报告
-    """
-    comparisonResult = compareData(originalData, newData, tolerance)
-
-    reportLines = [
-        "=" * 60,
-        "数据比对报告",
-        "=" * 60
-    ]
-
-    if comparisonResult['isEqual']:
-        reportLines.append("✅ 数据完全一致")
-    else:
-        reportLines.append("❌ 数据存在差异")
-
-        # 添加统计信息
-        if comparisonResult['summary']['totalItems'] > 0:
-            reportLines.append(f"\n📊 统计信息:")
-            reportLines.append(f"   总项数: {comparisonResult['summary']['totalItems']}")
-            reportLines.append(f"   一致项: {comparisonResult['summary']['matchingItems']}")
-            reportLines.append(f"   差异项: {comparisonResult['summary']['differentItems']}")
-
-        # 添加差异详情
-        if comparisonResult['differences']:
-            reportLines.append(f"\n🔍 差异详情 ({len(comparisonResult['differences'])} 处):")
-            for i, diff in enumerate(comparisonResult['differences'], 1):
-                reportLines.append(f"\n{i}. 路径: {diff['path']}")
-                reportLines.append(f"   类型: {diff['type']}")
-                # 显示值，注意处理特殊标记
-                original_val = diff['original'] if diff['original'] not in ('INDEX_MISSING', 'KEY_MISSING') else '（缺失）'
-                new_val = diff['new'] if diff['new'] not in ('INDEX_MISSING', 'KEY_MISSING') else '（缺失）'
-                reportLines.append(f"   原始: {original_val}")
-                reportLines.append(f"   新的: {new_val}")
-                reportLines.append(f"   信息: {diff['message']}")
-
-                # 如果是字符串差异，添加更多详情
-                if 'diff' in diff:
-                    diffInfo = diff['diff']
-                    reportLines.append(f"   相似度: {diffInfo['similarity']:.2%}")
-                    if diffInfo['diffBlocks']:
-                        for block in diffInfo['diffBlocks']:
-                            if block['type'] == 'replace':
-                                reportLines.append(f"   ↪ 替换: '{block['original']}' -> '{block['new']}'")
-                            elif block['type'] == 'delete':
-                                reportLines.append(f"   ✂ 删除: '{block['original']}'")
-                            elif block['type'] == 'insert':
-                                reportLines.append(f"   ➕ 插入: '{block['new']}'")
-
-    reportLines.append("\n" + "=" * 60)
-
-    return "\n".join(reportLines)
-
-
-# ---------- 自定义 JSON 编码器，处理 NumPy 数据类型 ----------
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, (complex, np.complexfloating)):
-            # Use an explicit object shape so complex values are JSON-safe and reversible.
-            return {
-                '__complex__': True,
-                'real': float(np.real(obj)),
-                'imag': float(np.imag(obj))
-            }
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
-
-
-# ---------------------------------------------------------
-
-def saveComparisonResult(originalData: Any, newData: Any, outputPath: str, tolerance: float = 0.0):
-    """
-    保存比对结果到文件
-    """
-    comparisonResult = compareData(originalData, newData, tolerance)
-    report = getComparisonReport(originalData, newData, tolerance)
-
-    result = {
-        'comparison': comparisonResult,
-        'report': report,
-        'originalData': originalData,
-        'newData': newData
-    }
-
-    with open(outputPath, 'w', encoding='utf-8') as f:
-        if outputPath.endswith('.json'):
-            # 使用自定义编码器以支持 NumPy 类型
-            json.dump(result, f, ensure_ascii=False, indent=2, cls=NumpyEncoder)
+def _format_value(value, max_len=80):
+    """格式化单个值用于报告输出（对于大数组只显示摘要）。"""
+    if isinstance(value, np.ndarray):
+        shape_str = "×".join(str(d) for d in value.shape)
+        dtype_str = str(value.dtype)
+        if value.size <= LARGE_ARRAY_THRESHOLD:
+            content = np.array2string(value, threshold=LARGE_ARRAY_THRESHOLD, edgeitems=3)
+            return f"ndarray(shape=({shape_str}), dtype={dtype_str})\n{content}"
         else:
-            f.write(report)
+            flat = value.flatten()
+            head = flat[:MAX_DISPLAY_ELEMENTS]
+            tail = flat[-MAX_DISPLAY_ELEMENTS:] if MAX_DISPLAY_ELEMENTS > 0 else []
+            head_str = np.array2string(head, separator=', ')
+            tail_str = np.array2string(tail, separator=', ')
+            return (f"ndarray(shape=({shape_str}), dtype={dtype_str}, size={value.size})\n"
+                    f"  first {MAX_DISPLAY_ELEMENTS}: {head_str}\n"
+                    f"  last {MAX_DISPLAY_ELEMENTS}: {tail_str}")
+    elif isinstance(value, (list, tuple)):
+        if len(value) <= MAX_DISPLAY_ELEMENTS * 2:
+            return repr(value)
+        else:
+            head = value[:MAX_DISPLAY_ELEMENTS]
+            tail = value[-MAX_DISPLAY_ELEMENTS:]
+            return f"{type(value).__name__}[{len(value)}]: {head} ... {tail}"
+    elif isinstance(value, dict):
+        if len(value) <= MAX_DISPLAY_ELEMENTS * 2:
+            return repr(value)
+        else:
+            keys = list(value.keys())
+            head_keys = keys[:MAX_DISPLAY_ELEMENTS]
+            tail_keys = keys[-MAX_DISPLAY_ELEMENTS:]
+            return f"dict[{len(value)}] keys: {head_keys} ... {tail_keys}"
+    else:
+        return repr(value)
 
-    return result
+def _almost_equal(a, b, tol):
+    """比较两个标量是否在容差内相等（支持复数、数字、字符串等）。"""
+    if a is None and b is None:
+        return True, None
+    if a is None or b is None:
+        return False, None
 
+    type_a, type_b = type(a), type(b)
 
-def TestDiff(outputName='default', originalOutput=[1], newOutput=[1], tolerance=0.0):
+    if isinstance(a, str) and isinstance(b, str):
+        return a == b, None
+
+    if isinstance(a, complex) and isinstance(b, complex):
+        diff_real = abs(a.real - b.real)
+        diff_imag = abs(a.imag - b.imag)
+        if diff_real <= tol and diff_imag <= tol:
+            return True, None
+        else:
+            return False, f"diff_real={diff_real:.6g}, diff_imag={diff_imag:.6g}"
+
+    try:
+        a_num = float(a)
+        b_num = float(b)
+        diff = abs(a_num - b_num)
+        if diff <= tol:
+            return True, None
+        else:
+            return False, f"diff={diff:.6g}"
+    except (TypeError, ValueError):
+        pass
+
+    return a == b, None
+
+def _get_type_desc(obj):
+    """返回对象的类型描述字符串，用于报告中的类型列。"""
+    if isinstance(obj, np.ndarray):
+        return "Numeric Array" if np.issubdtype(obj.dtype, np.number) else "Array"
+    elif isinstance(obj, (list, tuple)):
+        return "List/Tuple"
+    elif isinstance(obj, dict):
+        return "Dict"
+    elif isinstance(obj, str):
+        return "String"
+    elif isinstance(obj, (int, float, complex)):
+        return "Scalar"
+    elif obj is None:
+        return "None"
+    else:
+        return type(obj).__name__
+
+def _get_data_summary(obj):
+    """生成对象的数据概要字符串。"""
+    if isinstance(obj, np.ndarray):
+        shape_str = "×".join(str(d) for d in obj.shape)
+        return f"shape: ({shape_str}), size: {obj.size}"
+    elif isinstance(obj, (list, tuple)):
+        return f"length: {len(obj)}"
+    elif isinstance(obj, dict):
+        return f"keys: {len(obj)}"
+    elif isinstance(obj, (int, float, complex, str)):
+        return repr(obj)
+    elif obj is None:
+        return "None"
+    else:
+        return repr(obj)[:50]
+
+def _compare_arrays(arr1, arr2, tol, path, report_equal):
     """
-    外部调用入口：比较两个列表（或其他数据）并输出报告
+    比较两个 numpy 数组，处理维度不匹配、复数、大数组统计等。
+    返回一个字符串报告片段（差异详情），同时更新全局统计和通过项列表。
     """
-    result = compareData(originalOutput, newOutput, tolerance)
-    print(f"数据是否一致: {result['isEqual']}")
+    global _stats
+    _stats['num_arrays'] += 1
+    _stats['total_array_elements'] += arr1.size + arr2.size  # 粗略统计
 
-    report = getComparisonReport(originalOutput, newOutput, tolerance)
-    print(report)
+    report_lines = []
+    shape1 = arr1.shape
+    shape2 = arr2.shape
 
-    # 处理文件名
+    arr1_sq = np.squeeze(arr1)
+    arr2_sq = np.squeeze(arr2)
+    shape1_sq = arr1_sq.shape
+    shape2_sq = arr2_sq.shape
+
+    dimension_mismatch = (shape1 != shape2)
+    squeezable_match = (shape1_sq == shape2_sq) and (shape1 != shape2)
+
+    if dimension_mismatch:
+        if squeezable_match:
+            report_lines.append(f"{path}: 维度不匹配 (原始 {shape1} vs {shape2})，但 squeeze 后形状一致 ({shape1_sq})，降维比较。")
+            arr1 = arr1_sq
+            arr2 = arr2_sq
+        else:
+            diff_detail = f"{path}: 维度不匹配且无法降维匹配 (形状 {shape1} vs {shape2})，跳过详细比较。"
+            _stats['diff_items'].append((path, diff_detail))
+            return diff_detail
+
+    is_complex = np.iscomplexobj(arr1) or np.iscomplexobj(arr2)
+
+    if not np.issubdtype(arr1.dtype, np.number) or not np.issubdtype(arr2.dtype, np.number):
+        if np.array_equal(arr1, arr2):
+            if report_equal:
+                type_desc = _get_type_desc(arr1)
+                summary = _get_data_summary(arr1)
+                _stats['passed_items'].append((path, type_desc, summary))
+            return ""
+        else:
+            diff_detail = f"{path}: 数组不相等（包含非数值元素，无法进行容差比较）。"
+            _stats['diff_items'].append((path, diff_detail))
+            return diff_detail
+
+    total_elements = arr1.size
+    passed = False
+    diff_stats = ""
+
+    if is_complex:
+        real1 = arr1.real
+        real2 = arr2.real
+        imag1 = arr1.imag
+        imag2 = arr2.imag
+
+        diff_real = np.abs(real1 - real2)
+        diff_imag = np.abs(imag1 - imag2)
+
+        out_of_tol = (diff_real > tol) | (diff_imag > tol)
+        num_diff_elements = np.sum(out_of_tol)
+
+        if num_diff_elements == 0:
+            passed = True
+            if report_equal:
+                type_desc = _get_type_desc(arr1)
+                summary = _get_data_summary(arr1)
+                _stats['passed_items'].append((path, type_desc, summary))
+        else:
+            max_diff_real = np.max(diff_real)
+            max_diff_imag = np.max(diff_imag)
+            mean_diff_real = np.mean(diff_real)
+            mean_diff_imag = np.mean(diff_imag)
+
+            diff_lines = []
+            diff_lines.append(f"{path}: 复数数组形状 {arr1.shape}，共 {total_elements} 个元素，{num_diff_elements} 个超出容差 ({tol})。")
+            diff_lines.append(f"{path}:   实部最大差异: {max_diff_real:.6g}，平均: {mean_diff_real:.6g}")
+            diff_lines.append(f"{path}:   虚部最大差异: {max_diff_imag:.6g}，平均: {mean_diff_imag:.6g}")
+
+            diff_magnitude = np.sqrt(diff_real**2 + diff_imag**2)
+            flat_indices = np.argsort(diff_magnitude.flatten())[-5:][::-1]
+            unravel_indices = np.unravel_index(flat_indices, diff_magnitude.shape)
+            diff_lines.append(f"{path}:   差异最大的位置示例：")
+            for idx_tuple in zip(*unravel_indices):
+                pos = tuple(i.item() if hasattr(i, 'item') else i for i in idx_tuple)
+                val1 = arr1[pos]
+                val2 = arr2[pos]
+                d_mag = diff_magnitude[pos]
+                diff_lines.append(f"{path}:     位置 {pos}: {val1} vs {val2} (|diff|={d_mag:.6g})")
+            diff_stats = "\n".join(diff_lines)
+            _stats['diff_items'].append((path, diff_stats))
+    else:
+        try:
+            arr1_f = arr1.astype(float, copy=False)
+            arr2_f = arr2.astype(float, copy=False)
+        except (ValueError, TypeError):
+            if np.array_equal(arr1, arr2):
+                passed = True
+                if report_equal:
+                    type_desc = _get_type_desc(arr1)
+                    summary = _get_data_summary(arr1)
+                    _stats['passed_items'].append((path, type_desc, summary))
+            else:
+                diff_detail = f"{path}: 数组不相等（包含无法转换为浮点数的元素）。"
+                _stats['diff_items'].append((path, diff_detail))
+                return diff_detail
+        else:
+            diff = np.abs(arr1_f - arr2_f)
+            num_diff_elements = np.sum(diff > tol)
+
+            if num_diff_elements == 0:
+                passed = True
+                if report_equal:
+                    type_desc = _get_type_desc(arr1)
+                    summary = _get_data_summary(arr1)
+                    _stats['passed_items'].append((path, type_desc, summary))
+            else:
+                max_diff = np.max(diff)
+                min_diff = np.min(diff)
+                mean_diff = np.mean(diff)
+
+                diff_lines = []
+                diff_lines.append(f"{path}: 数组形状 {arr1.shape}，共 {total_elements} 个元素，其中 {num_diff_elements} 个超出容差 ({tol})。")
+                diff_lines.append(f"{path}:   最大差异: {max_diff:.6g}，最小差异: {min_diff:.6g}，平均差异: {mean_diff:.6g}")
+
+                flat_diff = diff.flatten()
+                flat_indices = np.argsort(flat_diff)[-5:][::-1]
+                unravel_indices = np.unravel_index(flat_indices, diff.shape)
+                diff_lines.append(f"{path}:   差异最大的位置示例：")
+                for idx_tuple in zip(*unravel_indices):
+                    pos = tuple(i.item() if hasattr(i, 'item') else i for i in idx_tuple)
+                    val1 = arr1_f[pos]
+                    val2 = arr2_f[pos]
+                    d = diff[pos]
+                    diff_lines.append(f"{path}:     位置 {pos}: {val1:.6g} vs {val2:.6g} (diff={d:.6g})")
+                diff_stats = "\n".join(diff_lines)
+                _stats['diff_items'].append((path, diff_stats))
+
+    return diff_stats
+
+def _compare_recursive(orig, new, tol, path, report_equal):
+    """
+    递归比较两个对象，更新全局统计和通过/差异列表。
+    """
+    global _stats
+
+    # 处理 None
+    if orig is None and new is None:
+        if report_equal:
+            _stats['passed_items'].append((path, "None", "None"))
+        return
+    if orig is None or new is None:
+        diff_detail = f"{path}: 一方为 None (orig={orig}, new={new})"
+        _stats['diff_items'].append((path, diff_detail))
+        return
+
+    type_orig = type(orig)
+    type_new = type(new)
+
+    # 更新类型统计（粗略）
+    if isinstance(orig, dict):
+        _stats['num_dicts'] += 1
+    elif isinstance(orig, str):
+        _stats['num_strings'] += 1
+    elif isinstance(orig, (int, float, complex)):
+        _stats['num_scalars'] += 1
+    elif not isinstance(orig, np.ndarray):
+        _stats['num_other'] += 1
+
+    # 处理 numpy 数组
+    if isinstance(orig, np.ndarray) and isinstance(new, np.ndarray):
+        diff_report = _compare_arrays(orig, new, tol, path, report_equal)
+        return
+
+    # 类型不一致
+    if isinstance(orig, np.ndarray) or isinstance(new, np.ndarray):
+        diff_detail = f"{path}: 类型不匹配 (orig: {type_orig.__name__}, new: {type_new.__name__})"
+        _stats['diff_items'].append((path, diff_detail))
+        return
+
+    # 处理字典
+    if isinstance(orig, dict) and isinstance(new, dict):
+        keys_orig = set(orig.keys())
+        keys_new = set(new.keys())
+        only_orig = keys_orig - keys_new
+        only_new = keys_new - keys_orig
+        common_keys = keys_orig & keys_new
+
+        for k in only_orig:
+            diff_detail = f"{path}['{k}']: 仅在原始数据中存在"
+            _stats['diff_items'].append((f"{path}['{k}']", diff_detail))
+        for k in only_new:
+            diff_detail = f"{path}['{k}']: 仅在新数据中存在"
+            _stats['diff_items'].append((f"{path}['{k}']", diff_detail))
+
+        for k in sorted(common_keys):
+            _compare_recursive(orig[k], new[k], tol, f"{path}['{k}']", report_equal)
+        return
+
+    # 处理列表、元组等序列
+    if isinstance(orig, (list, tuple)) and isinstance(new, (list, tuple)):
+        len_orig = len(orig)
+        len_new = len(new)
+        min_len = min(len_orig, len_new)
+
+        if len_orig != len_new:
+            diff_detail = f"{path}: 长度不一致 (orig={len_orig}, new={len_new})"
+            _stats['diff_items'].append((path, diff_detail))
+
+        for i in range(min_len):
+            _compare_recursive(orig[i], new[i], tol, f"{path}[{i}]", report_equal)
+
+        if len_orig > len_new:
+            for i in range(len_new, len_orig):
+                diff_detail = f"{path}[{i}]: 仅在原始数据中存在: {_format_value(orig[i])}"
+                _stats['diff_items'].append((f"{path}[{i}]", diff_detail))
+        elif len_new > len_orig:
+            for i in range(len_orig, len_new):
+                diff_detail = f"{path}[{i}]: 仅在新数据中存在: {_format_value(new[i])}"
+                _stats['diff_items'].append((f"{path}[{i}]", diff_detail))
+        return
+
+    # 处理其他可迭代对象（排除字符串）
+    if isinstance(orig, Iterable) and isinstance(new, Iterable) and not isinstance(orig, (str, bytes)):
+        try:
+            list_orig = list(orig)
+            list_new = list(new)
+            _compare_recursive(list_orig, list_new, tol, f"{path}(converted_to_list)", report_equal)
+        except:
+            diff_detail = f"{path}: 无法比较的可迭代类型 ({type_orig.__name__} vs {type_new.__name__})"
+            _stats['diff_items'].append((path, diff_detail))
+        return
+
+    # 标量比较
+    if type_orig != type_new:
+        try:
+            a_num = float(orig)
+            b_num = float(new)
+            diff = abs(a_num - b_num)
+            if diff > tol:
+                diff_detail = f"{path}: 类型不同但数值不等 ({type_orig.__name__} vs {type_new.__name__}) diff={diff:.6g}"
+                _stats['diff_items'].append((path, diff_detail))
+            elif report_equal:
+                type_desc = f"{type_orig.__name__}/{type_new.__name__}"
+                summary = f"{orig} ≈ {new}"
+                _stats['passed_items'].append((path, type_desc, summary))
+        except (TypeError, ValueError):
+            diff_detail = f"{path}: 类型不同且无法转换为数值比较 ({type_orig.__name__} vs {type_new.__name__})"
+            _stats['diff_items'].append((path, diff_detail))
+        return
+
+    # 同类型标量
+    equal, extra_info = _almost_equal(orig, new, tol)
+    if not equal:
+        info_str = f" ({extra_info})" if extra_info else ""
+        diff_detail = f"{path}: 值不相等: {_format_value(orig)} vs {_format_value(new)}{info_str}"
+        _stats['diff_items'].append((path, diff_detail))
+    elif report_equal:
+        type_desc = _get_type_desc(orig)
+        summary = _get_data_summary(orig)
+        _stats['passed_items'].append((path, type_desc, summary))
+
+def _generate_formatted_report(tolerance, report_equal):
+    """根据全局统计生成类似用户示例的结构化报告。"""
+    lines = []
+    sep = "=" * 70
+    subsep = "-" * 70
+
+    lines.append(sep)
+    lines.append(f"🔍 深度差异对齐报告  [容差设置: {tolerance:g}]")
+    lines.append(sep)
+
+    # 概述区
+    lines.append("📊 已完成深度遍历与匹配 (在容差内安全通过) :")
+    lines.append(f"   ▶ 数值矩阵/数组: {_stats['num_arrays']} 个 (包含元素总数: {_stats['total_array_elements']})")
+    lines.append(f"   ▶ 数值标量节点: {_stats['num_scalars']} 个")
+    lines.append(f"   ▶ 字典嵌套对象: {_stats['num_dicts']} 个")
+    lines.append(f"   ▶ 文本/字符串: {_stats['num_strings']} 个")
+    lines.append(subsep)
+
+    num_passed = len(_stats['passed_items'])
+    num_diffs = len(_stats['diff_items'])
+
+    if num_diffs == 0:
+        lines.append("✅ 测试通过：核心数值、结构和实质计算结果完全匹配合规！")
+        if num_passed > 0:
+            lines.append(f"   (注: 共确认 {num_passed} 处关键节点一致)")
+    else:
+        lines.append(f"⚠️ 测试存在差异：共发现 {num_diffs} 处不匹配项。")
+        if num_passed > 0:
+            lines.append(f"   (另有 {num_passed} 处节点在容差内通过)")
+
+    lines.append(sep)
+
+    # 通过项列表（当 report_equal=True 或用户总是希望显示通过项时）
+    if report_equal and num_passed > 0:
+        lines.append("✅ 下列核心维度/数据节点已确认一致 (容差内):")
+        lines.append(subsep)
+        for idx, (path, type_desc, summary) in enumerate(_stats['passed_items'], 1):
+            lines.append(f"   [{idx}] 成功路径：{path} ")
+            lines.append(f"       ▶ 类型: {type_desc} | 数据概要: {summary}")
+        lines.append(sep)
+
+    # 差异项详情
+    if num_diffs > 0:
+        lines.append("❌ 差异详情列表:")
+        lines.append(subsep)
+        for idx, (path, detail) in enumerate(_stats['diff_items'], 1):
+            lines.append(f"[差异 {idx}] 路径: {path}")
+            lines.append(detail)
+            lines.append(subsep)
+        lines.append(sep)
+
+    return "\n".join(lines)
+
+def getComparisonReport(originalOutput, newOutput, tolerance, report_equal):
+    """生成比较报告字符串（新版格式）。"""
+    _reset_stats()
+    if originalOutput is None and newOutput is None:
+        return "两者均为 None，无差异。"
+    _compare_recursive(originalOutput, newOutput, tolerance, "root", report_equal)
+    return _generate_formatted_report(tolerance, report_equal)
+
+def saveComparisonResult(originalOutput, newOutput, filepath, tolerance, report_equal):
+    """保存比较报告到文件。"""
+    report = getComparisonReport(originalOutput, newOutput, tolerance, report_equal)
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(report)
+        f.write("\n")
+
+def TestDiff(outputName='default', originalOutput=None, newOutput=None, tolerance=0.0, report_equal=True):
+    """
+    主接口函数：比较两个数据并生成报告文件。
+
+    参数：
+        outputName (str): 报告文件前缀名。
+        originalOutput: 待比较的第一个数据。
+        newOutput: 待比较的第二个数据。
+        tolerance (float): 数值比较的绝对容差。
+        report_equal (bool): 是否在报告中列出所有通过项。默认为 True（生成详细对齐报告）。
+    """
+    if originalOutput is None:
+        originalOutput = [1]
+    if newOutput is None:
+        newOutput = [1]
+
+    reportText = getComparisonReport(originalOutput, newOutput, tolerance, report_equal)
+    print(reportText)
+
     savedir = "reports"
     os.makedirs(savedir, exist_ok=True)
-
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    filename = f"{outputName}_comparison_{timestamp}.json"
-    outputpath = os.path.join(savedir, filename)
-    saveComparisonResult(originalOutput, newOutput, outputpath, tolerance)
-    print(f"📁 比较结果将保存到: {os.path.abspath(outputpath)}")
+    filename = f"{outputName}_{timestamp}_reports.txt"
+    filepath = os.path.join(savedir, filename)
 
+    saveComparisonResult(originalOutput, newOutput, filepath, tolerance, report_equal)
 
-# 使用示例（略，保持原样）...
-if __name__ == "__main__":
-    # ... 原有示例代码不变
-    pass
+    print(f"\n报告已保存至: {filepath}")
